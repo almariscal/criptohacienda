@@ -47,6 +47,8 @@ export type DashboardFilters = {
   type?: string;
 };
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
 class ApiClient {
   constructor(private readonly baseUrl: string = '') {}
 
@@ -100,4 +102,4 @@ class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient();
+export const apiClient = new ApiClient(API_BASE_URL);
