@@ -1,9 +1,10 @@
 import csv
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from io import StringIO
-from typing import Dict, Iterable, List, Literal
+from typing import Dict, Iterable, List, Literal, Deque
 
 from dateutil import parser as date_parser
 
@@ -329,31 +330,57 @@ def _is_fee_only(entries: Iterable[MovementEntry]) -> bool:
     return all(_is_fee(entry.operation) for entry in entries)
 
 
-def _build_trades_from_group(entries: Iterable[MovementEntry]) -> List[MovementTrade]:
-    positive: List[MovementEntry] = []
-    negative: List[MovementEntry] = []
-    fees: Dict[str, Decimal] = {}
+from collections import deque
 
-    for entry in entries:
+
+def _build_trades_from_group(entries: Iterable[MovementEntry]) -> List[MovementTrade]:
+    entry_list = list(entries)
+    fees: Dict[str, Decimal] = {}
+    filtered_entries: List[MovementEntry] = []
+
+    for entry in entry_list:
         if _is_fee(entry.operation):
             fees[entry.coin] = fees.get(entry.coin, Decimal("0")) + abs(entry.change)
             continue
-        if entry.change > 0:
-            positive.append(entry)
-        elif entry.change < 0:
-            negative.append(entry)
+        if entry.change == 0:
+            continue
+        filtered_entries.append(entry)
 
-    if not positive or not negative:
+    positives = [entry for entry in filtered_entries if entry.change > 0]
+    negatives = [entry for entry in filtered_entries if entry.change < 0]
+
+    if not positives or not negatives:
         return []
 
-    if len(positive) != len(negative):
+    if len(positives) != len(negatives):
         raise CSVFormatError(
-            f"Operaciones desbalanceadas en {positive[0].timestamp.isoformat()}."
+            f"Operaciones desbalanceadas en {entry_list[0].timestamp.isoformat() if entry_list else 'grupo sin timestamp'}."
         )
 
+    pos_assets = {entry.coin.upper() for entry in positives}
+    neg_assets = {entry.coin.upper() for entry in negatives}
     trades: List[MovementTrade] = []
-    for pos_entry, neg_entry in zip(positive, negative):
-        trades.append(_build_trade_from_entries(pos_entry, neg_entry))
+
+    if len(pos_assets) == 1 and len(neg_assets) == 1:
+        sorted_pos = sorted(positives, key=lambda e: e.change, reverse=True)
+        sorted_neg = sorted(negatives, key=lambda e: abs(e.change), reverse=True)
+        for pos_entry, neg_entry in zip(sorted_pos, sorted_neg):
+            trades.append(_build_trade_from_entries(pos_entry, neg_entry))
+    else:
+        positive_queue: Deque[MovementEntry] = deque()
+        negative_queue: Deque[MovementEntry] = deque()
+        for entry in filtered_entries:
+            if entry.change > 0:
+                positive_queue.append(entry)
+            else:
+                negative_queue.append(entry)
+            while positive_queue and negative_queue:
+                trades.append(_build_trade_from_entries(positive_queue.popleft(), negative_queue.popleft()))
+
+        if positive_queue or negative_queue:
+            raise CSVFormatError(
+                f"Operaciones desbalanceadas en {entry_list[0].timestamp.isoformat() if entry_list else 'grupo sin timestamp'}."
+            )
 
     if fees:
         _apply_fees(trades, fees)

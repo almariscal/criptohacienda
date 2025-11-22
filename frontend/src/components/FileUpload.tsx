@@ -13,6 +13,12 @@ const PROCESSING_SEQUENCE: Omit<ProcessingStep, 'status'>[] = [
   { id: 'dashboard', label: 'Generando dashboard e informes' }
 ];
 
+const DASHBOARD_SUB_STEPS = [
+  'Construyendo snapshots de cartera',
+  'Calculando métricas agregadas',
+  'Preparando tablas y gráficos'
+];
+
 const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -26,6 +32,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
     }));
 
   const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>(createInitialSteps);
+  const [dashboardSubStepIndex, setDashboardSubStepIndex] = useState(0);
+  const processingIntervalRef = useRef<number | null>(null);
   const timersRef = useRef<number[]>([]);
   const inputId = useId();
 
@@ -51,19 +59,47 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
   const startProcessing = () => {
     timersRef.current.forEach((timer) => clearTimeout(timer));
     timersRef.current = [];
+    if (processingIntervalRef.current) {
+      clearInterval(processingIntervalRef.current);
+      processingIntervalRef.current = null;
+    }
+
     setProcessingSteps(resetProcessingSteps());
     setShowProcessing(true);
-    PROCESSING_SEQUENCE.forEach((_, index) => {
-      if (index === 0) return;
-      const timer = window.setTimeout(() => advanceStep(index), index * 1200);
-      timersRef.current.push(timer);
-    });
+    setDashboardSubStepIndex(0);
+
+    let currentIndex = 0;
+    processingIntervalRef.current = window.setInterval(() => {
+      setProcessingSteps((prev) => {
+        const next = prev.map((step, index) => {
+          if (index < currentIndex) return { ...step, status: 'done' as StepStatus };
+          if (index === currentIndex) return { ...step, status: 'active' as StepStatus };
+          return { ...step, status: 'pending' as StepStatus };
+        });
+        return next;
+      });
+
+      if (PROCESSING_SEQUENCE[currentIndex].id === 'dashboard') {
+        const subIndex = (dashboardSubStepIndex + 1) % DASHBOARD_SUB_STEPS.length;
+        setDashboardSubStepIndex(subIndex);
+      }
+
+      currentIndex += 1;
+      if (currentIndex >= PROCESSING_SEQUENCE.length) {
+        currentIndex = PROCESSING_SEQUENCE.length - 1;
+      }
+    }, 4000);
   };
 
   const finishProcessing = () => {
     timersRef.current.forEach((timer) => clearTimeout(timer));
     timersRef.current = [];
+    if (processingIntervalRef.current) {
+      clearInterval(processingIntervalRef.current);
+      processingIntervalRef.current = null;
+    }
     setProcessingSteps((prev) => prev.map((step) => ({ ...step, status: 'done' as StepStatus })));
+    setDashboardSubStepIndex(DASHBOARD_SUB_STEPS.length - 1);
     window.setTimeout(() => setShowProcessing(false), 400);
   };
 
@@ -123,6 +159,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
   useEffect(() => {
     return () => {
       timersRef.current.forEach((timer) => clearTimeout(timer));
+      if (processingIntervalRef.current) {
+        clearInterval(processingIntervalRef.current);
+      }
     };
   }, []);
 
@@ -171,7 +210,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
           {error}
         </div>
       )}
-      <ProcessingStatusModal visible={showProcessing} steps={processingSteps} />
+      <ProcessingStatusModal
+        visible={showProcessing}
+        steps={processingSteps}
+        dashboardDetails={{ steps: DASHBOARD_SUB_STEPS, activeIndex: dashboardSubStepIndex }}
+      />
     </form>
   );
 };
