@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { createPortal } from 'react-dom';
 
-type StepStatus = 'pending' | 'active' | 'done';
+type StepStatus = 'pending' | 'active' | 'done' | 'error';
 
 type ProcessingStep = {
   id: string;
@@ -9,25 +9,22 @@ type ProcessingStep = {
   status: StepStatus;
 };
 
-type DashboardDetails = {
-  steps: string[];
-  activeIndex: number;
-};
-
 type ProcessingStatusModalProps = {
   visible: boolean;
   steps: ProcessingStep[];
-  dashboardDetails?: DashboardDetails;
+  messages?: string[];
 };
 
 const statusIcon: Record<StepStatus, string> = {
   pending: '⏳',
   active: '⚡',
-  done: '✅'
+  done: '✅',
+  error: '⚠️'
 };
 
-const ProcessingStatusModal: React.FC<ProcessingStatusModalProps> = ({ visible, steps, dashboardDetails }) => {
+const ProcessingStatusModal: React.FC<ProcessingStatusModalProps> = ({ visible, steps, messages = [] }) => {
   const activeSteps = useMemo(() => steps.filter((step) => step.status !== 'pending').length, [steps]);
+  const totalSteps = steps.length || 1;
 
   if (!visible || typeof document === 'undefined') {
     return null;
@@ -39,40 +36,28 @@ const ProcessingStatusModal: React.FC<ProcessingStatusModalProps> = ({ visible, 
         <p className="panel-label">Procesando</p>
         <h2>Estamos preparando tu sesión</h2>
         <p className="processing-description">
-          Analizando movimientos, armando posiciones y solicitando cotizaciones históricas ({activeSteps}/{steps.length})
+          Analizando movimientos, armando posiciones y solicitando cotizaciones históricas ({activeSteps}/{totalSteps})
         </p>
         <ol className="processing-steps">
-          {steps.map((step) => {
-            const showDashboardDetails = step.id === 'dashboard' && dashboardDetails && dashboardDetails.steps.length > 0;
-            return (
-              <li key={step.id} className={`processing-step processing-step--${step.status}`}>
-                <span className="processing-step__icon" aria-hidden="true">
-                  {statusIcon[step.status]}
-                </span>
-                <span>{step.label}</span>
-                {showDashboardDetails && dashboardDetails && (
-                  <ul className="processing-substeps">
-                    {dashboardDetails.steps.map((substep, index) => {
-                      const subStatus = (() => {
-                        if (step.status === 'pending') return 'pending';
-                        if (step.status === 'done') return 'done';
-                        if (dashboardDetails.activeIndex > index) return 'done';
-                        if (dashboardDetails.activeIndex === index) return 'active';
-                        return 'pending';
-                      })() as StepStatus;
-                      return (
-                        <li key={substep} className={`processing-substep processing-substep--${subStatus}`}>
-                          <span aria-hidden="true">{statusIcon[subStatus]}</span>
-                          {substep}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </li>
-            );
-          })}
+          {steps.map((step) => (
+            <li key={step.id} className={`processing-step processing-step--${step.status}`}>
+              <span className="processing-step__icon" aria-hidden="true">
+                {statusIcon[step.status]}
+              </span>
+              <span>{step.label}</span>
+            </li>
+          ))}
         </ol>
+        {messages.length > 0 && (
+          <div className="processing-log">
+            <p className="processing-log__title">Actividad reciente</p>
+            <ul>
+              {messages.slice(-6).map((message, index) => (
+                <li key={`${message}-${index}`}>{message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -80,5 +65,5 @@ const ProcessingStatusModal: React.FC<ProcessingStatusModalProps> = ({ visible, 
   return createPortal(modal, document.body);
 };
 
-export type { ProcessingStep, StepStatus, DashboardDetails };
+export type { ProcessingStep, StepStatus };
 export default ProcessingStatusModal;

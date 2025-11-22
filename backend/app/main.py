@@ -1,19 +1,31 @@
+import asyncio
 import csv
 from collections import defaultdict, deque
 from datetime import date, datetime, timedelta
 from io import StringIO
-from typing import Iterable, List, Literal, Optional
+from typing import Callable, Iterable, List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from .models import CashMovement, Operation, OperationView, PortfolioSnapshot, RealizedGain, SessionData
+from .models import (
+    CashMovement,
+    Operation,
+    OperationView,
+    PortfolioSnapshot,
+    ProcessingJob,
+    ProcessingStepState,
+    RealizedGain,
+    SessionData,
+)
 from .schemas import (
+    DashboardGainDetail,
     DashboardGainPoint,
     DashboardHolding,
     DashboardOperation,
+    AssetPerformancePoint,
     DashboardResponse,
     DashboardSummary,
     GroupBy,
@@ -22,11 +34,14 @@ from .schemas import (
     RealizedGainsResponse,
     SummaryItem,
     SummaryResponse,
+    UploadJobStatus,
+    UploadJobStep,
     UploadResponse,
 )
 from .services import parser, pricing
 from .services.tax_engine import TaxEngine
 from .session_store import session_store
+from .processing_store import processing_store
 
 app = FastAPI(title="Cripto Hacienda Tax Engine")
 
@@ -37,6 +52,134 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+PROCESSING_STEPS: list[tuple[str, str]] = [
+    ("parse_csv", "Leyendo CSV y validando formato"),
+    ("tax_engine", "Calculando operaciones y ganancias"),
+    ("build_views", "Generando vistas de operaciones"),
+    ("pricing", "Obteniendo cotizaciones y snapshots"),
+]
+
+
+def _init_processing_job(job_id: str) -> None:
+    steps = [ProcessingStepState(id=step_id, label=label) for step_id, label in PROCESSING_STEPS]
+    processing_store.set(job_id, ProcessingJob(id=job_id, status="pending", steps=steps))
+
+
+def _set_job_status(job_id: str, status: str, error: str | None = None) -> None:
+    def updater(job: ProcessingJob) -> None:
+        job.status = status  # type: ignore[assignment]
+        if error:
+            job.error = error
+
+    processing_store.update(job_id, updater)
+
+
+def _set_step_status(job_id: str, step_id: str, status: str) -> None:
+    def updater(job: ProcessingJob) -> None:
+        for step in job.steps:
+            if step.id == step_id:
+                step.status = status  # type: ignore[assignment]
+                break
+
+    processing_store.update(job_id, updater)
+
+
+def _complete_job(job_id: str, session_id: str) -> None:
+    def updater(job: ProcessingJob) -> None:
+        job.status = "completed"
+        job.session_id = session_id
+        for step in job.steps:
+            if step.status != "completed":
+                step.status = "completed"
+
+    processing_store.update(job_id, updater)
+
+
+def _fail_job(job_id: str, message: str) -> None:
+    def updater(job: ProcessingJob) -> None:
+        job.status = "error"
+        job.error = message
+        for step in job.steps:
+            if step.status not in ("completed", "error"):
+                step.status = "error"
+
+    processing_store.update(job_id, updater)
+
+
+def _add_job_message(job_id: str, message: str) -> None:
+    def updater(job: ProcessingJob) -> None:
+        job.messages.append(message)
+        if len(job.messages) > 50:
+            job.messages.pop(0)
+
+    processing_store.update(job_id, updater)
+
+
+async def _process_upload_job(job_id: str, content: str) -> None:
+    try:
+        _set_job_status(job_id, "running")
+        _set_step_status(job_id, "parse_csv", "running")
+        operations, cash_movements = parser.parse_binance_csv(content)
+        _add_job_message(job_id, f"CSV procesado: {len(operations)} operaciones, {len(cash_movements)} movimientos de caja")
+        _set_step_status(job_id, "parse_csv", "completed")
+
+        _set_step_status(job_id, "tax_engine", "running")
+        engine = TaxEngine(pricing.get_price_eur)
+        engine.process_operations(operations)
+        _add_job_message(job_id, f"Tax engine completado: {len(engine.realized_gains)} plusvalías realizadas calculadas")
+        _set_step_status(job_id, "tax_engine", "completed")
+
+        _set_step_status(job_id, "build_views", "running")
+        operation_views, _total_invested, total_fees = _build_operation_views(operations)
+        _add_job_message(job_id, f"Generadas {len(operation_views)} vistas de operaciones, fees totales {total_fees:.2f}€")
+        _set_step_status(job_id, "build_views", "completed")
+
+        _set_step_status(job_id, "pricing", "running")
+        total_deposited = _cash_total_eur(
+            cash_movements,
+            "deposit",
+            allowed_origins={"deposit"},
+            progress_callback=lambda msg: _add_job_message(job_id, msg),
+        )
+        total_withdrawn = _cash_total_eur(
+            cash_movements,
+            "withdraw",
+            progress_callback=lambda msg: _add_job_message(job_id, msg),
+        )
+        portfolio_snapshots = _build_portfolio_snapshots(
+            operations,
+            cash_movements,
+            progress_callback=lambda msg: _add_job_message(job_id, msg),
+        )
+        _add_job_message(job_id, f"Snapshots generados: {len(portfolio_snapshots)} estados de cartera")
+        _set_step_status(job_id, "pricing", "completed")
+
+        session_id = str(uuid4())
+        session_store.set(
+            session_id,
+            SessionData(
+                operations=operations,
+                realized_gains=engine.realized_gains,
+                holdings={asset: lots for asset, lots in engine.holdings.items()},
+                operation_views=operation_views,
+                total_invested_eur=total_deposited,
+                total_fees_eur=total_fees,
+                cash_movements=cash_movements,
+                total_deposited_eur=total_deposited,
+                total_withdrawn_eur=total_withdrawn,
+                portfolio_snapshots=portfolio_snapshots,
+            ),
+        )
+
+        _complete_job(job_id, session_id)
+    except parser.CSVFormatError as exc:
+        _fail_job(job_id, str(exc))
+    except pricing.PricingError as exc:
+        _fail_job(job_id, str(exc))
+    except Exception as exc:  # noqa: BLE001
+        _fail_job(job_id, "Error procesando el archivo")
+        raise exc
 
 
 def _get_session_or_404(session_id: str) -> SessionData:
@@ -152,16 +295,49 @@ def _format_period_label(period_start: date, group_by: GroupBy) -> str:
 
 
 def _build_gain_points(gains: Iterable[RealizedGain], group_by: GroupBy) -> List[DashboardGainPoint]:
-    buckets: dict[str, float] = {}
+    buckets: dict[str, dict[str, object]] = {}
     for gain in gains:
         period_start = _group_label(gain.timestamp, group_by)
         label = _format_period_label(period_start, group_by)
-        buckets[label] = buckets.get(label, 0.0) + gain.gain_eur
+        if label not in buckets:
+            buckets[label] = {"gain": 0.0, "items": []}
+        bucket = buckets[label]
+        bucket["gain"] = float(bucket["gain"]) + gain.gain_eur
+        bucket["items"].append(gain)
 
-    return [
-        DashboardGainPoint(period=period, gain=buckets[period])
-        for period in sorted(buckets.keys())
+    points: List[DashboardGainPoint] = []
+    for label in sorted(buckets.keys()):
+        bucket = buckets[label]
+        details = [
+            DashboardGainDetail(
+                timestamp=item.timestamp,
+                asset=item.asset,
+                quantity=item.quantity,
+                proceeds=item.proceeds_eur,
+                gain=item.gain_eur,
+            )
+            for item in bucket["items"]
+        ]
+        points.append(DashboardGainPoint(period=label, gain=float(bucket["gain"]), details=details))
+
+    return points
+
+
+def _asset_performance(gains: Iterable[RealizedGain]) -> List[AssetPerformancePoint]:
+    stats: dict[str, dict[str, float]] = {}
+    for gain in gains:
+        key = gain.asset.upper()
+        if key not in stats:
+            stats[key] = {"gains": 0.0, "operations": 0}
+        stats[key]["gains"] += gain.gain_eur
+        stats[key]["operations"] += 1
+
+    results = [
+        AssetPerformancePoint(asset=asset, gains=values["gains"], operations=int(values["operations"]))
+        for asset, values in stats.items()
     ]
+    results.sort(key=lambda item: item.gains, reverse=True)
+    return results
 
 
 def _serialize_operations(operations: Iterable[OperationView]) -> List[DashboardOperation]:
@@ -183,6 +359,7 @@ def _serialize_operations(operations: Iterable[OperationView]) -> List[Dashboard
 def _build_portfolio_snapshots(
     operations: List[Operation],
     cash_movements: List[CashMovement],
+    progress_callback: Callable[[str], None] | None = None,
 ) -> List[PortfolioSnapshot]:
     events: List[tuple[str, datetime, int, object]] = []
     for idx, op in enumerate(sorted(operations, key=lambda item: item.timestamp)):
@@ -196,13 +373,30 @@ def _build_portfolio_snapshots(
     balances: dict[str, float] = defaultdict(float)
     price_cache: dict[tuple[str, str], float] = {}
     snapshots: List[PortfolioSnapshot] = []
+    total_deposited = 0.0
+    total_withdrawn = 0.0
 
     for event_type, timestamp, _, payload in events:
         if event_type == "operation":
             _apply_operation_to_balances(balances, payload)  # type: ignore[arg-type]
         else:
+            movement = payload  # type: ignore[assignment]
+            movement_value = _movement_value_eur(movement, progress_callback)
+            if movement.type == "deposit":
+                total_deposited += movement_value
+            else:
+                total_withdrawn += movement_value
             _apply_cash_movement_to_balances(balances, payload)  # type: ignore[arg-type]
-        snapshots.append(_snapshot_from_balances(balances, timestamp, price_cache))
+        snapshots.append(
+            _snapshot_from_balances(
+                balances,
+                timestamp,
+                price_cache,
+                progress_callback,
+                total_deposited,
+                total_withdrawn,
+            )
+        )
 
     return snapshots
 
@@ -244,6 +438,9 @@ def _snapshot_from_balances(
     balances: dict[str, float],
     timestamp: datetime,
     price_cache: dict[tuple[str, str], float],
+    progress_callback: Callable[[str], None] | None = None,
+    total_deposited: float = 0.0,
+    total_withdrawn: float = 0.0,
 ) -> PortfolioSnapshot:
     asset_quantities: dict[str, float] = {}
     asset_values: dict[str, float] = {}
@@ -253,18 +450,32 @@ def _snapshot_from_balances(
             continue
         asset_key = asset.upper()
         asset_quantities[asset_key] = quantity
-        price = 1.0 if asset_key == "EUR" else _price_with_cache(asset_key, timestamp, price_cache)
+        price = 1.0 if asset_key == "EUR" else _price_with_cache(asset_key, timestamp, price_cache, progress_callback)
         value = quantity * price
         asset_values[asset_key] = value
         total_value += value
 
-    return PortfolioSnapshot(timestamp=timestamp, total_value=total_value, asset_values=asset_values, asset_quantities=asset_quantities)
+    return PortfolioSnapshot(
+        timestamp=timestamp,
+        total_value=total_value,
+        asset_values=asset_values,
+        asset_quantities=asset_quantities,
+        total_deposited_eur=total_deposited,
+        total_withdrawn_eur=total_withdrawn,
+    )
 
 
-def _price_with_cache(asset: str, timestamp: datetime, cache: dict[tuple[str, str], float]) -> float:
+def _price_with_cache(
+    asset: str,
+    timestamp: datetime,
+    cache: dict[tuple[str, str], float],
+    progress_callback: Callable[[str], None] | None = None,
+) -> float:
     date_key = timestamp.strftime("%d-%m-%Y")
     cache_key = (asset.upper(), date_key)
     if cache_key not in cache:
+        if progress_callback:
+            progress_callback(f"Cotización {asset.upper()} para {date_key}")
         cache[cache_key] = pricing.get_price_eur(asset, timestamp)
     return cache[cache_key]
 
@@ -273,6 +484,7 @@ def _cash_total_eur(
     movements: Iterable[CashMovement],
     movement_type: Literal["deposit", "withdraw"],
     allowed_origins: set[str] | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> float:
     total = 0.0
     for movement in movements:
@@ -280,9 +492,20 @@ def _cash_total_eur(
             continue
         if allowed_origins and movement.origin not in allowed_origins:
             continue
+        if progress_callback:
+            progress_callback(f"Valorando {movement_type} de {movement.amount} {movement.asset}")
         rate = pricing.get_price_eur(movement.asset, movement.timestamp)
         total += movement.amount * rate
     return total
+
+
+def _movement_value_eur(movement: CashMovement, progress_callback: Callable[[str], None] | None = None) -> float:
+    if movement.asset.upper() == "EUR":
+        return movement.amount
+    if progress_callback:
+        progress_callback(f"Valorando {movement.type} de {movement.asset}")
+    rate = pricing.get_price_eur(movement.asset, movement.timestamp)
+    return movement.amount * rate
 
 
 def _summarize_holdings(
@@ -354,50 +577,25 @@ async def upload_binance_csv(file: UploadFile = File(...)) -> UploadResponse:
         raise HTTPException(status_code=400, detail="A CSV file is required")
 
     content = (await file.read()).decode("utf-8")
-    try:
-        operations, cash_movements = parser.parse_binance_csv(content)
-    except parser.CSVFormatError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    job_id = str(uuid4())
+    _init_processing_job(job_id)
+    asyncio.create_task(_process_upload_job(job_id, content))
+    return UploadResponse(job_id=job_id)
 
-    engine = TaxEngine(pricing.get_price_eur)
-    try:
-        engine.process_operations(operations)
-    except pricing.PricingError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    try:
-        operation_views, total_invested, total_fees = _build_operation_views(operations)
-    except pricing.PricingError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    try:
-        total_deposited = _cash_total_eur(cash_movements, "deposit", allowed_origins={"deposit"})
-        total_withdrawn = _cash_total_eur(cash_movements, "withdraw")
-        portfolio_snapshots = _build_portfolio_snapshots(operations, cash_movements)
-    except pricing.PricingError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    session_id = str(uuid4())
-    session_store.set(
-        session_id,
-        SessionData(
-            operations=operations,
-            realized_gains=engine.realized_gains,
-            holdings={asset: lots for asset, lots in engine.holdings.items()},
-            operation_views=operation_views,
-            total_invested_eur=total_deposited,
-            total_fees_eur=total_fees,
-            cash_movements=cash_movements,
-            total_deposited_eur=total_deposited,
-            total_withdrawn_eur=total_withdrawn,
-            portfolio_snapshots=portfolio_snapshots,
-        ),
-    )
-
-    return UploadResponse(
-        session_id=session_id,
-        operations_count=len(operations),
-        realized_gains_count=len(engine.realized_gains),
+@app.get("/api/upload/jobs/{job_id}", response_model=UploadJobStatus)
+async def get_upload_job(job_id: str) -> UploadJobStatus:
+    job = processing_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    steps = [UploadJobStep(id=step.id, label=step.label, status=step.status) for step in job.steps]
+    return UploadJobStatus(
+        job_id=job.id,
+        status=job.status,
+        steps=steps,
+        session_id=job.session_id,
+        error=job.error,
+        messages=list(job.messages),
     )
 
 
@@ -484,6 +682,8 @@ async def get_dashboard(
             "timestamp": snapshot.timestamp,
             "totalValue": snapshot.total_value,
             "assetValues": snapshot.asset_values,
+            "totalDeposited": snapshot.total_deposited_eur,
+            "totalWithdrawn": snapshot.total_withdrawn_eur,
         }
         for snapshot in session.portfolio_snapshots
     ]
@@ -493,6 +693,7 @@ async def get_dashboard(
         operations=operations_payload,
         holdings=holdings,
         portfolioHistory=portfolio_history,
+        assetPerformance=_asset_performance(session.realized_gains),
     )
 
 

@@ -18,6 +18,8 @@ class PortfolioSnapshot:
     total_value: float
     asset_values: Dict[str, float]
     asset_quantities: Dict[str, float]
+    total_deposited_eur: float = 0.0
+    total_withdrawn_eur: float = 0.0
 
 
 @dataclass
@@ -69,3 +71,20 @@ class SessionData:
     total_deposited_eur: float = 0.0
     total_withdrawn_eur: float = 0.0
     portfolio_snapshots: List[PortfolioSnapshot] = field(default_factory=list)
+
+
+@dataclass
+class ProcessingStepState:
+    id: str
+    label: str
+    status: Literal["pending", "running", "completed", "error"] = "pending"
+
+
+@dataclass
+class ProcessingJob:
+    id: str
+    status: Literal["pending", "running", "completed", "error"] = "pending"
+    steps: List[ProcessingStepState] = field(default_factory=list)
+    session_id: Optional[str] = None
+    error: Optional[str] = None
+    messages: List[str] = field(default_factory=list)

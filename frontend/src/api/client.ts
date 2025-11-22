@@ -1,5 +1,5 @@
 export type UploadResponse = {
-  session_id: string;
+  job_id: string;
 };
 
 export type SummaryResponse = {
@@ -14,6 +14,13 @@ export type SummaryResponse = {
 export type GainPoint = {
   period: string;
   gain: number;
+  details: {
+    timestamp: string;
+    asset: string;
+    quantity: number;
+    proceeds: number;
+    gain: number;
+  }[];
 };
 
 export type Operation = {
@@ -38,6 +45,8 @@ export type PortfolioSnapshot = {
   timestamp: string;
   totalValue: number;
   assetValues: Record<string, number>;
+  totalDeposited: number;
+  totalWithdrawn: number;
 };
 
 export type DashboardResponse = {
@@ -46,6 +55,22 @@ export type DashboardResponse = {
   operations: Operation[];
   holdings: Holding[];
   portfolioHistory: PortfolioSnapshot[];
+  assetPerformance: { asset: string; gains: number; operations: number }[];
+};
+
+export type UploadJobStep = {
+  id: string;
+  label: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+};
+
+export type UploadJobStatus = {
+  job_id: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  steps: UploadJobStep[];
+  session_id?: string;
+  error?: string;
+  messages: string[];
 };
 
 export type DashboardFilters = {
@@ -147,6 +172,14 @@ class ApiClient {
     }
 
     return response.blob();
+  }
+
+  async fetchUploadJob(jobId: string): Promise<UploadJobStatus> {
+    const response = await fetch(`${this.baseUrl}/api/upload/jobs/${jobId}`);
+    if (!response.ok) {
+      throw new Error('No se pudo obtener el estado del procesamiento.');
+    }
+    return response.json();
   }
 }
 

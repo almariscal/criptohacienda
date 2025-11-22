@@ -1,5 +1,5 @@
 import { PortfolioSnapshot } from '../api/client';
-import { ResponsiveContainer, LineChart, Line, XAxis, Tooltip, YAxis, CartesianGrid } from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, Tooltip, YAxis, CartesianGrid, Legend } from 'recharts';
 
 type PortfolioHistoryChartProps = {
   data: PortfolioSnapshot[];
@@ -14,7 +14,9 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ data }) =
 
   const chartData = data.map((point) => ({
     timestamp: new Date(point.timestamp).toLocaleDateString('es-ES'),
-    totalValue: point.totalValue
+    totalValue: point.totalValue,
+    totalDeposited: point.totalDeposited,
+    totalWithdrawn: point.totalWithdrawn
   }));
 
   return (
@@ -32,8 +34,11 @@ const PortfolioHistoryChart: React.FC<PortfolioHistoryChartProps> = ({ data }) =
             <XAxis dataKey="timestamp" />
             <YAxis tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
             <Tooltip formatter={(value: number) => formatCurrency(value)} />
-            <Line type="monotone" dataKey="totalValue" stroke="#6366f1" strokeWidth={2} dot={false} />
-          </LineChart>
+            <Legend />
+            <Line type="monotone" dataKey="totalValue" stroke="#6366f1" strokeWidth={2} dot={false} name="Valor cartera" />
+            <Line type="basis" dataKey="totalDeposited" stroke="#22c55e" strokeWidth={2} dot={false} name="Aportaciones acumuladas" />
+            <Line type="basis" dataKey="totalWithdrawn" stroke="#ef4444" strokeWidth={2} dot={false} name="Retiros acumulados" />
+         </LineChart>
         </ResponsiveContainer>
       </div>
     </div>

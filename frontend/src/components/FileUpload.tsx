@@ -1,40 +1,22 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import ProcessingStatusModal, { ProcessingStep, StepStatus } from './ProcessingStatusModal';
+import { apiClient } from '../api/client';
 
 interface FileUploadProps {
-  onUpload: (file: File) => Promise<void>;
+  onUploadStart: (file: File) => Promise<string>;
+  onUploadComplete: (sessionId: string) => void;
 }
 
-const PROCESSING_SEQUENCE: Omit<ProcessingStep, 'status'>[] = [
-  { id: 'upload', label: 'Subiendo archivo' },
-  { id: 'validate', label: 'Validando formato y agrupando movimientos' },
-  { id: 'calc', label: 'Calculando operaciones, lotes y ganancias' },
-  { id: 'pricing', label: 'Obteniendo cotizaciones históricas' },
-  { id: 'dashboard', label: 'Generando dashboard e informes' }
-];
-
-const DASHBOARD_SUB_STEPS = [
-  'Construyendo snapshots de cartera',
-  'Calculando métricas agregadas',
-  'Preparando tablas y gráficos'
-];
-
-const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ onUploadStart, onUploadComplete }) => {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showProcessing, setShowProcessing] = useState(false);
-  const createInitialSteps = (): ProcessingStep[] =>
-    PROCESSING_SEQUENCE.map((step, index) => ({
-      ...step,
-      status: (index === 0 ? 'active' : 'pending') as StepStatus
-    }));
-
-  const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>(createInitialSteps);
-  const [dashboardSubStepIndex, setDashboardSubStepIndex] = useState(0);
-  const processingIntervalRef = useRef<number | null>(null);
-  const timersRef = useRef<number[]>([]);
+  const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([]);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<string[]>([]);
+  const pollIntervalRef = useRef<number | null>(null);
   const inputId = useId();
 
   const selectFile = (nextFile: File | null) => {
@@ -44,63 +26,58 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
     }
   };
 
-  const resetProcessingSteps = (): ProcessingStep[] => createInitialSteps();
-
-  const advanceStep = (targetIndex: number) => {
-    setProcessingSteps((prev) =>
-      prev.map((step, index) => {
-        if (index < targetIndex) return { ...step, status: 'done' as StepStatus };
-        if (index === targetIndex) return { ...step, status: 'active' as StepStatus };
-        return { ...step, status: 'pending' as StepStatus };
-      })
-    );
-  };
-
-  const startProcessing = () => {
-    timersRef.current.forEach((timer) => clearTimeout(timer));
-    timersRef.current = [];
-    if (processingIntervalRef.current) {
-      clearInterval(processingIntervalRef.current);
-      processingIntervalRef.current = null;
+  const clearPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
     }
-
-    setProcessingSteps(resetProcessingSteps());
-    setShowProcessing(true);
-    setDashboardSubStepIndex(0);
-
-    let currentIndex = 0;
-    processingIntervalRef.current = window.setInterval(() => {
-      setProcessingSteps((prev) => {
-        const next = prev.map((step, index) => {
-          if (index < currentIndex) return { ...step, status: 'done' as StepStatus };
-          if (index === currentIndex) return { ...step, status: 'active' as StepStatus };
-          return { ...step, status: 'pending' as StepStatus };
-        });
-        return next;
-      });
-
-      if (PROCESSING_SEQUENCE[currentIndex].id === 'dashboard') {
-        const subIndex = (dashboardSubStepIndex + 1) % DASHBOARD_SUB_STEPS.length;
-        setDashboardSubStepIndex(subIndex);
-      }
-
-      currentIndex += 1;
-      if (currentIndex >= PROCESSING_SEQUENCE.length) {
-        currentIndex = PROCESSING_SEQUENCE.length - 1;
-      }
-    }, 4000);
   };
 
   const finishProcessing = () => {
-    timersRef.current.forEach((timer) => clearTimeout(timer));
-    timersRef.current = [];
-    if (processingIntervalRef.current) {
-      clearInterval(processingIntervalRef.current);
-      processingIntervalRef.current = null;
-    }
-    setProcessingSteps((prev) => prev.map((step) => ({ ...step, status: 'done' as StepStatus })));
-    setDashboardSubStepIndex(DASHBOARD_SUB_STEPS.length - 1);
+    clearPolling();
     window.setTimeout(() => setShowProcessing(false), 400);
+    setLoading(false);
+    setJobId(null);
+  };
+
+  const mapStatus = (status: 'pending' | 'running' | 'completed' | 'error'): StepStatus => {
+    if (status === 'running') return 'active';
+    if (status === 'completed') return 'done';
+    if (status === 'error') return 'error';
+    return 'pending';
+  };
+
+  const pollJobStatus = async (id: string) => {
+    try {
+      const status = await apiClient.fetchUploadJob(id);
+      setMessages(status.messages || []);
+      setProcessingSteps(
+        status.steps.map((step) => ({
+          id: step.id,
+          label: step.label,
+          status: mapStatus(step.status)
+        }))
+      );
+      if (status.status === 'completed' && status.session_id) {
+        finishProcessing();
+        onUploadComplete(status.session_id);
+      } else if (status.status === 'error') {
+        finishProcessing();
+        setError(status.error || 'Se produjo un error al procesar el archivo.');
+      }
+    } catch (err) {
+      finishProcessing();
+      setError((err as Error).message);
+    }
+  };
+
+  const startProcessing = (id: string) => {
+    setShowProcessing(true);
+    setProcessingSteps([]);
+    setMessages([]);
+    setJobId(id);
+    pollJobStatus(id);
+    pollIntervalRef.current = window.setInterval(() => pollJobStatus(id), 3000);
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -112,15 +89,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
 
     setError(null);
     setLoading(true);
-    startProcessing();
     try {
-      await onUpload(file);
-      finishProcessing();
+      const job = await onUploadStart(file);
+      startProcessing(job);
     } catch (err) {
-      finishProcessing();
-      setError((err as Error).message);
-    } finally {
       setLoading(false);
+      setError((err as Error).message);
     }
   };
 
@@ -158,10 +132,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
 
   useEffect(() => {
     return () => {
-      timersRef.current.forEach((timer) => clearTimeout(timer));
-      if (processingIntervalRef.current) {
-        clearInterval(processingIntervalRef.current);
-      }
+      clearPolling();
     };
   }, []);
 
@@ -199,8 +170,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
       </label>
 
       <div className="upload-actions">
-        <button type="submit" className="btn btn-primary" disabled={loading}>
-          {loading ? 'Subiendo...' : 'Procesar archivo'}
+        <button type="submit" className="btn btn-primary" disabled={loading || showProcessing}>
+          {loading ? 'Procesando...' : 'Procesar archivo'}
         </button>
         <span className="muted">Solo datos locales; nada se guarda sin tu permiso.</span>
       </div>
@@ -210,11 +181,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUpload }) => {
           {error}
         </div>
       )}
-      <ProcessingStatusModal
-        visible={showProcessing}
-        steps={processingSteps}
-        dashboardDetails={{ steps: DASHBOARD_SUB_STEPS, activeIndex: dashboardSubStepIndex }}
-      />
+      <ProcessingStatusModal visible={showProcessing} steps={processingSteps} messages={messages} />
     </form>
   );
 };

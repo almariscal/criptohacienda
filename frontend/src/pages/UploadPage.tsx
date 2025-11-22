@@ -7,15 +7,19 @@ const UploadPage = () => {
   const navigate = useNavigate();
   const { setSessionId } = useSession();
 
-  const handleUpload = async (file: File) => {
+  const handleUploadStart = async (file: File) => {
     const result = await apiClient.uploadBinanceCsv(file);
-    setSessionId(result.session_id);
+    return result.job_id;
+  };
+
+  const handleUploadComplete = (sessionId: string) => {
+    setSessionId(sessionId);
     navigate('/dashboard');
   };
 
   return (
     <div className="upload-stack">
-      <FileUpload onUpload={handleUpload} />
+      <FileUpload onUploadStart={handleUploadStart} onUploadComplete={handleUploadComplete} />
       <div className="panel panel-info">
         <h3>Consejos rápidos</h3>
         <p>Descarga el CSV desde Binance &gt; Orders &gt; Spot Trading &gt; Trade History. No modificas columnas ni encabezados.</p>

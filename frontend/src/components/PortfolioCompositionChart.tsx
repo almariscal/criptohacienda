@@ -19,17 +19,29 @@ const PortfolioCompositionChart: React.FC<PortfolioCompositionChartProps> = ({ d
   const topAssets = sortedAssets.slice(0, 5);
 
   const chartData = data.map((point) => {
-    const row: Record<string, number | string> = { timestamp: new Date(point.timestamp).toLocaleDateString('es-ES') };
-    const others = Object.entries(point.assetValues).reduce(
-      (acc, [asset, value]) => (topAssets.includes(asset) ? acc : acc + value),
-      0
-    );
-    topAssets.forEach((asset) => {
-      row[asset] = point.assetValues[asset] || 0;
-    });
-    if (others > 0) {
-      row.Otros = others;
+    const total = Object.values(point.assetValues).reduce((acc, value) => acc + value, 0);
+    if (total <= 0) {
+      return { timestamp: new Date(point.timestamp).toLocaleDateString('es-ES') };
     }
+
+    const row: Record<string, number | string> = { timestamp: new Date(point.timestamp).toLocaleDateString('es-ES') };
+    let others = 0;
+
+    topAssets.forEach((asset) => {
+      const value = point.assetValues[asset] || 0;
+      row[asset] = value / total;
+    });
+
+    Object.entries(point.assetValues).forEach(([asset, value]) => {
+      if (!topAssets.includes(asset)) {
+        others += value;
+      }
+    });
+
+    if (others > 0) {
+      row.Otros = others / total;
+    }
+
     return row;
   });
 

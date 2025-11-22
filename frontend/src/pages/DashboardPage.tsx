@@ -6,6 +6,7 @@ import SummaryCards from '../components/SummaryCards';
 import FundsFlowChart from '../components/FundsFlowChart';
 import PortfolioHistoryChart from '../components/PortfolioHistoryChart';
 import PortfolioCompositionChart from '../components/PortfolioCompositionChart';
+import AssetPerformanceChart from '../components/AssetPerformanceChart';
 import { DashboardResponse, apiClient } from '../api/client';
 import { useSession } from '../context/SessionContext';
 
@@ -120,6 +121,7 @@ const DashboardPage = () => {
       {data && <PortfolioHistoryChart data={data.portfolioHistory} />}
       {data && <PortfolioCompositionChart data={data.portfolioHistory} />}
       {data && <GainsChart data={data.gains} groupBy={groupBy} onGroupByChange={setGroupBy} />}
+      {data && <AssetPerformanceChart data={data.assetPerformance} />}
       {data && (
         <div className="panel panel-info">
           <div className="panel-header">

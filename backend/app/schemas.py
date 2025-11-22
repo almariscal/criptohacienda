@@ -1,7 +1,7 @@
 from datetime import datetime, date
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 GroupBy = Literal["day", "week", "month", "year"]
@@ -18,8 +18,7 @@ class OperationSchema(BaseModel):
     fee_amount: float
     fee_asset: str
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RealizedGainSchema(BaseModel):
@@ -64,9 +63,22 @@ class SummaryResponse(BaseModel):
 
 
 class UploadResponse(BaseModel):
-    session_id: str = Field(..., description="Identifier for the uploaded session")
-    operations_count: int
-    realized_gains_count: int
+    job_id: str = Field(..., description="Identifier for the processing job")
+
+
+class UploadJobStep(BaseModel):
+    id: str
+    label: str
+    status: Literal["pending", "running", "completed", "error"]
+
+
+class UploadJobStatus(BaseModel):
+    job_id: str
+    status: Literal["pending", "running", "completed", "error"]
+    steps: List[UploadJobStep]
+    session_id: Optional[str] = None
+    error: Optional[str] = None
+    messages: List[str] = Field(default_factory=list)
 
 
 class DashboardOperation(BaseModel):
@@ -87,15 +99,26 @@ class DashboardHolding(BaseModel):
     currentValue: float
 
 
+class DashboardGainDetail(BaseModel):
+    timestamp: datetime
+    asset: str
+    quantity: float
+    proceeds: float
+    gain: float
+
+
 class DashboardGainPoint(BaseModel):
     period: str
     gain: float
+    details: List[DashboardGainDetail]
 
 
 class PortfolioSnapshotPoint(BaseModel):
     timestamp: datetime
     totalValue: float
     assetValues: Dict[str, float]
+    totalDeposited: float
+    totalWithdrawn: float
 
 
 class DashboardSummary(BaseModel):
@@ -107,9 +130,16 @@ class DashboardSummary(BaseModel):
     unrealizedGains: float
 
 
+class AssetPerformancePoint(BaseModel):
+    asset: str
+    gains: float
+    operations: int
+
+
 class DashboardResponse(BaseModel):
     summary: DashboardSummary
     gains: List[DashboardGainPoint]
     operations: List[DashboardOperation]
     holdings: List[DashboardHolding]
     portfolioHistory: List[PortfolioSnapshotPoint]
+    assetPerformance: List[AssetPerformancePoint]
