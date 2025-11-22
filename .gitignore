@@ -1,0 +1,35 @@
+# Python / Backend artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.env
+.venv/
+venv/
+pip-wheel-metadata/
+.idea/
+.vscode/
+
+# Local data files
+*.sqlite3
+*.db
+*.log
+ejemplo_movimientos.csv
+
+# Frontend / Node artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.turbo/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# OS / Editor  noise
+*.DS_Store
+Thumbs.db
