@@ -32,6 +32,8 @@ Backend routes are session-oriented; upload a CSV first to obtain a `session_id`
 - `GET /api/sessions/{session_id}/realized-gains` — List realized gains calculated by the tax engine.
 - `GET /api/sessions/{session_id}/holdings` — Current FIFO lots per asset.
 - `GET /api/sessions/{session_id}/summaries?group_by=day|week|month|year` — Aggregated proceeds, cost basis, fees, and gains per period (defaults to yearly).
+- `GET /api/dashboard?session_id=...` — Convenience endpoint that bundles summary cards, gains series, holdings, and operations already converted a EUR. Supports optional `group_by`, `start_date`, `end_date`, `asset`, and `type` filters (the same filters used in la UI).
+- `GET /api/export/operations?session_id=...` — Exports the filtered operations shown in the dashboard table as CSV using the same filter set as `/api/dashboard`.
 - `DELETE /api/sessions/{session_id}` — Drop a session and its cached data.
 
 ## Expected Binance CSV Format

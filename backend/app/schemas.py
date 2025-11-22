@@ -67,3 +67,49 @@ class UploadResponse(BaseModel):
     session_id: str = Field(..., description="Identifier for the uploaded session")
     operations_count: int
     realized_gains_count: int
+
+
+class DashboardOperation(BaseModel):
+    id: str
+    date: date
+    asset: str
+    type: str
+    amount: float
+    price: float
+    fee: float | None = None
+    total: float | None = None
+
+
+class DashboardHolding(BaseModel):
+    asset: str
+    quantity: float
+    averagePrice: float
+    currentValue: float
+
+
+class DashboardGainPoint(BaseModel):
+    period: str
+    gain: float
+
+
+class PortfolioSnapshotPoint(BaseModel):
+    timestamp: datetime
+    totalValue: float
+    assetValues: Dict[str, float]
+
+
+class DashboardSummary(BaseModel):
+    totalInvested: float
+    totalWithdrawn: float
+    currentBalance: float
+    totalFees: float
+    realizedGains: float
+    unrealizedGains: float
+
+
+class DashboardResponse(BaseModel):
+    summary: DashboardSummary
+    gains: List[DashboardGainPoint]
+    operations: List[DashboardOperation]
+    holdings: List[DashboardHolding]
+    portfolioHistory: List[PortfolioSnapshotPoint]

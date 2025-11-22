@@ -4,6 +4,8 @@ export type UploadResponse = {
 
 export type SummaryResponse = {
   totalInvested: number;
+  totalWithdrawn: number;
+  currentBalance: number;
   totalFees: number;
   realizedGains: number;
   unrealizedGains: number;
@@ -32,11 +34,18 @@ export type Holding = {
   currentValue: number;
 };
 
+export type PortfolioSnapshot = {
+  timestamp: string;
+  totalValue: number;
+  assetValues: Record<string, number>;
+};
+
 export type DashboardResponse = {
   summary: SummaryResponse;
   gains: GainPoint[];
   operations: Operation[];
   holdings: Holding[];
+  portfolioHistory: PortfolioSnapshot[];
 };
 
 export type DashboardFilters = {
@@ -47,10 +56,49 @@ export type DashboardFilters = {
   type?: string;
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const FALLBACK_API_PORT = import.meta.env.VITE_API_PORT?.trim() || '8000';
+
+const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, '');
+
+const resolveApiBaseUrl = (): string => {
+  const configured = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (configured) {
+    return normalizeBaseUrl(configured);
+  }
+
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+    return normalizeBaseUrl(`${protocol}//${hostname}:${FALLBACK_API_PORT}`);
+  }
+
+  return '';
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 class ApiClient {
   constructor(private readonly baseUrl: string = '') {}
+
+  private async buildError(response: Response, fallbackMessage: string): Promise<Error> {
+    try {
+      const data = await response.json();
+      if (typeof data === 'string' && data.trim().length > 0) {
+        return new Error(data);
+      }
+      if (typeof data?.detail === 'string' && data.detail.trim().length > 0) {
+        return new Error(data.detail);
+      }
+      if (data?.detail && typeof data.detail === 'object') {
+        return new Error(JSON.stringify(data.detail));
+      }
+      if (typeof data?.message === 'string' && data.message.trim().length > 0) {
+        return new Error(data.message);
+      }
+    } catch {
+      // Ignore parser errors and fall back to the provided message.
+    }
+    return new Error(fallbackMessage);
+  }
 
   async uploadBinanceCsv(file: File): Promise<UploadResponse> {
     const formData = new FormData();
@@ -62,7 +110,7 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error('No se pudo subir el archivo. Inténtalo de nuevo.');
+      throw await this.buildError(response, 'No se pudo subir el archivo. Inténtalo de nuevo.');
     }
 
     return response.json();
@@ -79,7 +127,7 @@ class ApiClient {
 
     const response = await fetch(`${this.baseUrl}/api/dashboard?${params.toString()}`);
     if (!response.ok) {
-      throw new Error('No se pudo obtener la información del dashboard.');
+      throw await this.buildError(response, 'No se pudo obtener la información del dashboard.');
     }
 
     return response.json();
@@ -95,7 +143,7 @@ class ApiClient {
 
     const response = await fetch(`${this.baseUrl}/api/export/operations?${params.toString()}`);
     if (!response.ok) {
-      throw new Error('No se pudo exportar el CSV.');
+      throw await this.buildError(response, 'No se pudo exportar el CSV.');
     }
 
     return response.blob();

@@ -3,8 +3,13 @@ import { Link } from 'react-router-dom';
 import GainsChart from '../components/GainsChart';
 import OperationsTable from '../components/OperationsTable';
 import SummaryCards from '../components/SummaryCards';
+import FundsFlowChart from '../components/FundsFlowChart';
+import PortfolioHistoryChart from '../components/PortfolioHistoryChart';
+import PortfolioCompositionChart from '../components/PortfolioCompositionChart';
 import { DashboardResponse, apiClient } from '../api/client';
 import { useSession } from '../context/SessionContext';
+
+const currency = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 
 const DashboardPage = () => {
   const { sessionId } = useSession();
@@ -60,68 +65,73 @@ const DashboardPage = () => {
   const holdingsView = useMemo(() => {
     if (!data) return null;
     return (
-      <div className="section">
-        <h2>Posiciones actuales</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Activo</th>
-              <th>Cantidad</th>
-              <th>Precio promedio</th>
-              <th>Valor actual</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.holdings.map((holding) => (
-              <tr key={holding.asset}>
-                <td>{holding.asset}</td>
-                <td>{holding.quantity}</td>
-                <td>
-                  {new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(holding.averagePrice)}
-                </td>
-                <td>
-                  {new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(holding.currentValue)}
-                </td>
-              </tr>
-            ))}
-            {!data.holdings.length && (
+      <div className="panel panel-holdings">
+        <div className="panel-header">
+          <div>
+            <p className="panel-label">Estado actual</p>
+            <h2>Posiciones abiertas</h2>
+          </div>
+        </div>
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead>
               <tr>
-                <td colSpan={4} style={{ textAlign: 'center', padding: '16px' }}>
-                  No hay posiciones cargadas todavía.
-                </td>
+                <th>Activo</th>
+                <th>Cantidad</th>
+                <th>Precio promedio</th>
+                <th>Valor actual</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.holdings.map((holding) => (
+                <tr key={holding.asset}>
+                  <td>{holding.asset}</td>
+                  <td>{holding.quantity}</td>
+                  <td>{currency.format(holding.averagePrice)}</td>
+                  <td>{currency.format(holding.currentValue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!data.holdings.length && <p className="empty-state">No hay posiciones cargadas todavía.</p>}
+        </div>
       </div>
     );
   }, [data]);
 
   if (!sessionId) {
     return (
-      <div className="section">
+      <div className="panel panel-empty">
         <h2>Dashboard</h2>
         <p>Sube primero un CSV para generar una sesión de análisis.</p>
-        <Link to="/">Ir a subir CSV</Link>
+        <Link to="/" className="btn btn-primary">
+          Ir a subir CSV
+        </Link>
       </div>
     );
   }
 
   return (
-    <div>
-      {loading && <div className="alert">Cargando datos...</div>}
-      {error && <div className="alert">{error}</div>}
+    <div className="dashboard-stack">
+      {loading && <div className="status-badge">Cargando datos...</div>}
+      {error && <div className="status-badge status-badge--error">{error}</div>}
       {data && <SummaryCards summary={data.summary} />}
+      {data && <FundsFlowChart summary={data.summary} />}
+      {data && <PortfolioHistoryChart data={data.portfolioHistory} />}
+      {data && <PortfolioCompositionChart data={data.portfolioHistory} />}
       {data && <GainsChart data={data.gains} groupBy={groupBy} onGroupByChange={setGroupBy} />}
       {data && (
-        <div className="section">
-          <div className="layout-header" style={{ padding: 0 }}>
-            <h2>Filtros y exportación</h2>
-            <button onClick={handleExport} disabled={loading}>
+        <div className="panel panel-info">
+          <div className="panel-header">
+            <div>
+              <p className="panel-label">Exportación</p>
+              <h2>Filtros rápidos</h2>
+            </div>
+            <button onClick={handleExport} className="btn ghost" disabled={loading}>
               Exportar CSV
             </button>
           </div>
-          <p style={{ marginTop: 8 }}>Ajusta los filtros en la tabla para exportar exactamente las operaciones que necesitas.</p>
+          <p>Ajusta los filtros en la tabla y descárgalos exactamente como los ves en pantalla.</p>
         </div>
       )}
       {data && (

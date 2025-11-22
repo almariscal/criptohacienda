@@ -15,6 +15,8 @@ interface OperationsTableProps {
 }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(value);
+const formatDate = (value: string) =>
+  new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(value));
 
 const OperationsTable: React.FC<OperationsTableProps> = ({ operations, filters, onFiltersChange }) => {
   const assets = useMemo(() => Array.from(new Set(operations.map((op) => op.asset))).sort(), [operations]);
@@ -29,23 +31,32 @@ const OperationsTable: React.FC<OperationsTableProps> = ({ operations, filters, 
   });
 
   return (
-    <div className="section">
-      <div className="layout-header" style={{ padding: 0, marginBottom: 12 }}>
-        <h2>Operaciones</h2>
-        <div className="input-group" style={{ margin: 0 }}>
+    <div className="panel panel-table">
+      <div className="panel-header panel-header--stacked">
+        <div>
+          <p className="panel-label">Historial detallado</p>
+          <h2>Operaciones</h2>
+        </div>
+        <div className="filters-grid">
           <input
             type="date"
             value={filters.startDate || ''}
             onChange={(e) => onFiltersChange({ ...filters, startDate: e.target.value })}
             aria-label="Fecha inicio"
+            className="control"
           />
           <input
             type="date"
             value={filters.endDate || ''}
             onChange={(e) => onFiltersChange({ ...filters, endDate: e.target.value })}
             aria-label="Fecha fin"
+            className="control"
           />
-          <select value={filters.asset || ''} onChange={(e) => onFiltersChange({ ...filters, asset: e.target.value || undefined })}>
+          <select
+            value={filters.asset || ''}
+            onChange={(e) => onFiltersChange({ ...filters, asset: e.target.value || undefined })}
+            className="control control--select"
+          >
             <option value="">Todos los activos</option>
             {assets.map((asset) => (
               <option key={asset} value={asset}>
@@ -53,7 +64,11 @@ const OperationsTable: React.FC<OperationsTableProps> = ({ operations, filters, 
               </option>
             ))}
           </select>
-          <select value={filters.type || ''} onChange={(e) => onFiltersChange({ ...filters, type: e.target.value || undefined })}>
+          <select
+            value={filters.type || ''}
+            onChange={(e) => onFiltersChange({ ...filters, type: e.target.value || undefined })}
+            className="control control--select"
+          >
             <option value="">Todos los tipos</option>
             {types.map((type) => (
               <option key={type} value={type}>
@@ -64,40 +79,38 @@ const OperationsTable: React.FC<OperationsTableProps> = ({ operations, filters, 
         </div>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
-        <table>
+      <div className="table-wrapper">
+        <table className="data-table">
           <thead>
             <tr>
               <th>Fecha</th>
               <th>Activo</th>
               <th>Tipo</th>
               <th>Cantidad</th>
-              <th>Precio</th>
-              <th>Comisión</th>
-              <th>Total</th>
+              <th>Precio EUR</th>
+              <th>Comisión EUR</th>
+              <th>Total EUR</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((operation) => (
               <tr key={operation.id}>
-                <td>{operation.date}</td>
-                <td>{operation.asset}</td>
-                <td>{operation.type}</td>
+                <td>{formatDate(operation.date)}</td>
+                <td>
+                  <span className="chip">{operation.asset}</span>
+                </td>
+                <td>
+                  <span className={`chip chip--${operation.type.toLowerCase()}`}>{operation.type}</span>
+                </td>
                 <td>{operation.amount}</td>
                 <td>{formatCurrency(operation.price)}</td>
                 <td>{operation.fee ? formatCurrency(operation.fee) : '-'}</td>
                 <td>{operation.total ? formatCurrency(operation.total) : '-'}</td>
               </tr>
             ))}
-            {!filtered.length && (
-              <tr>
-                <td colSpan={7} style={{ textAlign: 'center', padding: '16px' }}>
-                  No hay operaciones para los filtros seleccionados.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
+        {!filtered.length && <p className="empty-state">No hay operaciones para los filtros seleccionados.</p>}
       </div>
     </div>
   );

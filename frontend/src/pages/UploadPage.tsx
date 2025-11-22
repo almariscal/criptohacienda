@@ -14,9 +14,16 @@ const UploadPage = () => {
   };
 
   return (
-    <div>
+    <div className="upload-stack">
       <FileUpload onUpload={handleUpload} />
-      <div className="alert">Asegúrate de que el CSV corresponde al historial de operaciones de Binance.</div>
+      <div className="panel panel-info">
+        <h3>Consejos rápidos</h3>
+        <p>Descarga el CSV desde Binance &gt; Orders &gt; Spot Trading &gt; Trade History. No modificas columnas ni encabezados.</p>
+        <ul className="tips-list">
+          <li>Solo se procesa localmente; puedes eliminar la sesión cuando quieras.</li>
+          <li>El modo noche ajusta la interfaz sin alterar tus datos.</li>
+        </ul>
+      </div>
     </div>
   );
 };
