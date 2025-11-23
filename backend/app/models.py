@@ -3,6 +3,39 @@ from datetime import date, datetime
 from typing import Dict, List, Literal, Optional
 
 
+Location = Literal["binance_spot", "wallet_btc", "wallet_evm"]
+TxType = Literal[
+    "trade",
+    "transfer_in",
+    "transfer_out",
+    "deposit",
+    "withdrawal",
+    "bridge_in",
+    "bridge_out",
+    "other",
+]
+SourceSystem = Literal["binance_csv", "btc_chain", "evm_chain"]
+
+
+@dataclass
+class NormalizedTx:
+    id: str
+    timestamp: datetime
+    asset: str
+    amount: float
+    fee: float
+    fee_asset: str
+    location: Location
+    type: TxType
+    source_system: SourceSystem
+    chain: Optional[str] = None
+    token_address: Optional[str] = None
+    address: Optional[str] = None
+    src_address: Optional[str] = None
+    dst_address: Optional[str] = None
+    raw: Optional[dict] = None
+
+
 @dataclass
 class CashMovement:
     timestamp: datetime

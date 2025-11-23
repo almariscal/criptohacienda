@@ -11,6 +11,13 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - ETHERSCAN_API_KEY=C3B2F2RDENI859D8SZ8CWZDWZ4FGCCF6P6
+      - ARBISCAN_API_KEY=""
+      - BASESCAN_API_KEY=""
+      - POLYGONSCAN_API_KEY=""
+      - OPTIMISTICSCAN_API_KEY=""
+      - BSCSCAN_API_KEY=""
+      - SNOWTRACE_API_KEY=""
     networks:
       - app-network
 

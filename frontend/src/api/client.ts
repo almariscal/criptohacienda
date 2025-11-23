@@ -49,6 +49,24 @@ export type PortfolioSnapshot = {
   totalWithdrawn: number;
 };
 
+export type NormalizedTx = {
+  id: string;
+  timestamp: string;
+  asset: string;
+  amount: number;
+  fee: number;
+  fee_asset: string;
+  location: string;
+  type: string;
+  source_system: string;
+  chain?: string;
+  token_address?: string;
+  address?: string;
+  src_address?: string;
+  dst_address?: string;
+  raw?: Record<string, unknown>;
+};
+
 export type DashboardResponse = {
   summary: SummaryResponse;
   gains: GainPoint[];
@@ -56,6 +74,40 @@ export type DashboardResponse = {
   holdings: Holding[];
   portfolioHistory: PortfolioSnapshot[];
   assetPerformance: { asset: string; gains: number; operations: number }[];
+};
+
+export type AnalyzeResponse = {
+  normalizedTxs: NormalizedTx[];
+  pnlSummary: Record<string, number>;
+  balancesByLocation: Record<string, Record<string, number>>;
+  operationsTimeline: NormalizedTx[];
+  valueTimeline: Record<string, number>;
+  assetHistory: Record<string, { timestamp: string; balance: number }[]>;
+  assetBreakdown: {
+    asset: string;
+    total_in: number;
+    total_out: number;
+    net_amount: number;
+    fees_paid: number;
+    entries: {
+      id: string;
+      timestamp: string;
+      location: string;
+      type: string;
+      amount: number;
+      fee: number;
+      fee_asset: string;
+      source_system: string;
+      raw?: Record<string, unknown>;
+    }[];
+  }[];
+};
+
+export type AnalyzePayload = {
+  binanceCsvFile?: File;
+  btcAddresses: string[];
+  evmAddresses: string[];
+  chains: string[];
 };
 
 export type UploadJobStep = {
@@ -179,6 +231,27 @@ class ApiClient {
     if (!response.ok) {
       throw new Error('No se pudo obtener el estado del procesamiento.');
     }
+    return response.json();
+  }
+
+  async analyze(payload: AnalyzePayload): Promise<AnalyzeResponse> {
+    const formData = new FormData();
+    if (payload.binanceCsvFile) {
+      formData.append('binanceCsvFile', payload.binanceCsvFile);
+    }
+    formData.append('btcAddresses', JSON.stringify(payload.btcAddresses));
+    formData.append('evmAddresses', JSON.stringify(payload.evmAddresses));
+    formData.append('chains', JSON.stringify(payload.chains));
+
+    const response = await fetch(`${this.baseUrl}/api/analyze`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw await this.buildError(response, 'No se pudo completar el análisis multichain.');
+    }
+
     return response.json();
   }
 }

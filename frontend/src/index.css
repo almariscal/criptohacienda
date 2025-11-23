@@ -453,6 +453,62 @@ a {
   min-width: 600px;
 }
 
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-field textarea {
+  min-height: 120px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  padding: 12px;
+  font-family: inherit;
+  background: var(--surface-alt);
+  color: var(--text-color);
+}
+
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.chip--active {
+  background: var(--accent-gradient);
+  color: #fff;
+}
+
+.ledger-details {
+  margin-top: 12px;
+}
+
+.ledger-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.history-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  color: var(--text-muted);
+}
+
+.history-list li {
+  margin-bottom: 4px;
+}
+
 .processing-modal {
   position: fixed;
   inset: 0;

@@ -1,6 +1,7 @@
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import UploadPage from './pages/UploadPage';
 import DashboardPage from './pages/DashboardPage';
+import AnalyzePage from './pages/AnalyzePage';
 import ThemeToggle from './components/ThemeToggle';
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
@@ -27,6 +28,9 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
         <NavLink to="/dashboard" className={({ isActive }) => `nav-pill ${isActive ? 'nav-pill--active' : ''}`}>
           Dashboard
         </NavLink>
+        <NavLink to="/analyze" className={({ isActive }) => `nav-pill ${isActive ? 'nav-pill--active' : ''}`}>
+          Análisis multichain
+        </NavLink>
       </nav>
       <main className="page-content">{children}</main>
     </div>
@@ -49,6 +53,14 @@ function App() {
         element={
           <Layout>
             <DashboardPage />
+          </Layout>
+        }
+      />
+      <Route
+        path="/analyze"
+        element={
+          <Layout>
+            <AnalyzePage />
           </Layout>
         }
       />

@@ -1,12 +1,13 @@
 import asyncio
 import csv
+import json
 from collections import defaultdict, deque
 from datetime import date, datetime, timedelta
 from io import StringIO
 from typing import Callable, Iterable, List, Literal, Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -30,6 +31,7 @@ from .schemas import (
     DashboardSummary,
     GroupBy,
     HoldingsResponse,
+    AnalyzeResponse,
     OperationsResponse,
     RealizedGainsResponse,
     SummaryItem,
@@ -39,6 +41,7 @@ from .schemas import (
     UploadResponse,
 )
 from .services import parser, pricing
+from .services.analysis.pipeline import run_combined_analysis
 from .services.tax_engine import TaxEngine
 from .session_store import session_store
 from .processing_store import processing_store
@@ -59,6 +62,18 @@ PROCESSING_STEPS: list[tuple[str, str]] = [
     ("build_views", "Generando vistas de operaciones"),
     ("pricing", "Obteniendo cotizaciones y snapshots"),
 ]
+
+
+def _parse_json_list(raw_value: str) -> list[str]:
+    if not raw_value:
+        return []
+    try:
+        parsed = json.loads(raw_value)
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if item]
+    except json.JSONDecodeError:
+        return [item.strip() for item in raw_value.split(",") if item.strip()]
+    return []
 
 
 def _init_processing_job(job_id: str) -> None:
@@ -597,6 +612,27 @@ async def get_upload_job(job_id: str) -> UploadJobStatus:
         error=job.error,
         messages=list(job.messages),
     )
+
+
+@app.post("/api/analyze", response_model=AnalyzeResponse)
+async def analyze_wallets(
+    binanceCsvFile: UploadFile | None = File(None),
+    btcAddresses: str = Form("[]"),
+    evmAddresses: str = Form("[]"),
+    chains: str = Form("[]"),
+) -> AnalyzeResponse:
+    csv_bytes = await binanceCsvFile.read() if binanceCsvFile else None
+    btc_list = _parse_json_list(btcAddresses)
+    evm_list = _parse_json_list(evmAddresses)
+    chain_list = _parse_json_list(chains)
+    result = await asyncio.to_thread(
+        run_combined_analysis,
+        csv_bytes,
+        btc_list,
+        evm_list,
+        chain_list,
+    )
+    return AnalyzeResponse(**result)
 
 
 @app.get("/api/sessions/{session_id}/operations", response_model=OperationsResponse)

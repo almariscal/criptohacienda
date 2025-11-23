@@ -81,6 +81,24 @@ class UploadJobStatus(BaseModel):
     messages: List[str] = Field(default_factory=list)
 
 
+class NormalizedTxSchema(BaseModel):
+    id: str
+    timestamp: datetime
+    asset: str
+    amount: float
+    fee: float
+    fee_asset: str
+    location: str
+    type: str
+    source_system: str
+    chain: Optional[str] = None
+    token_address: Optional[str] = None
+    address: Optional[str] = None
+    src_address: Optional[str] = None
+    dst_address: Optional[str] = None
+    raw: Optional[dict] = None
+
+
 class DashboardOperation(BaseModel):
     id: str
     date: date
@@ -136,6 +154,32 @@ class AssetPerformancePoint(BaseModel):
     operations: int
 
 
+class AssetLedgerEntry(BaseModel):
+    id: str
+    timestamp: datetime
+    location: str
+    type: str
+    amount: float
+    fee: float
+    fee_asset: str
+    source_system: str
+    raw: Optional[dict] = None
+
+
+class AssetBreakdown(BaseModel):
+    asset: str
+    total_in: float
+    total_out: float
+    net_amount: float
+    fees_paid: float
+    entries: List[AssetLedgerEntry]
+
+
+class AssetHistoryPoint(BaseModel):
+    timestamp: datetime
+    balance: float
+
+
 class DashboardResponse(BaseModel):
     summary: DashboardSummary
     gains: List[DashboardGainPoint]
@@ -143,3 +187,13 @@ class DashboardResponse(BaseModel):
     holdings: List[DashboardHolding]
     portfolioHistory: List[PortfolioSnapshotPoint]
     assetPerformance: List[AssetPerformancePoint]
+
+
+class AnalyzeResponse(BaseModel):
+    normalizedTxs: List[NormalizedTxSchema]
+    pnlSummary: Dict[str, float]
+    balancesByLocation: Dict[str, Dict[str, float]]
+    operationsTimeline: List[NormalizedTxSchema]
+    valueTimeline: Dict[str, float]
+    assetHistory: Dict[str, List[AssetHistoryPoint]]
+    assetBreakdown: List[AssetBreakdown]
