@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Iterable, List
 
 from ...models import NormalizedTx
-from ...schemas import AssetBreakdown, AssetLedgerEntry
+from ...schemas import AssetBreakdown, AssetLedgerEntry, FlowEntry, FlowHistory
 from .importers.binance_csv_importer import import_binance_transactions
 from .importers.btc_importer import import_btc_addresses
 from .importers.evm_importer import import_evm_addresses
@@ -36,6 +36,7 @@ def run_combined_analysis(
     calculator = PnlCalculator()
     calculator.process(unified)
     breakdown = _build_asset_breakdown(unified)
+    flow_history = _build_flow_history(unified)
 
     return {
         "normalizedTxs": [tx.__dict__ for tx in unified],
@@ -45,6 +46,7 @@ def run_combined_analysis(
         "valueTimeline": calculator.timeline(),
         "assetHistory": calculator.history(),
         "assetBreakdown": breakdown,
+        "flowHistory": flow_history,
     }
 
 
@@ -86,3 +88,28 @@ def _build_asset_breakdown(transactions: List[NormalizedTx]) -> List[AssetBreakd
         )
     breakdown.sort(key=lambda item: item.asset)
     return breakdown
+
+
+def _build_flow_history(transactions: List[NormalizedTx]) -> FlowHistory:
+    inflows: List[FlowEntry] = []
+    outflows: List[FlowEntry] = []
+    movements: List[FlowEntry] = []
+
+    for tx in sorted(transactions, key=lambda item: item.timestamp):
+        entry = FlowEntry(
+            tx_id=tx.id,
+            timestamp=tx.timestamp,
+            asset=tx.asset,
+            amount=tx.amount,
+            location=tx.location,
+            chain=tx.chain,
+            counterparty=tx.dst_address if tx.amount < 0 else tx.src_address,
+            type=tx.type,
+        )
+        movements.append(entry)
+        if tx.type in {"deposit", "transfer_in"} and tx.amount > 0:
+            inflows.append(entry)
+        elif tx.type in {"withdrawal", "transfer_out"} and tx.amount < 0:
+            outflows.append(entry)
+
+    return FlowHistory(inflows=inflows, outflows=outflows, movements=movements)

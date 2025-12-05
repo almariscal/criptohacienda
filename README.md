@@ -10,7 +10,9 @@ Cripto Hacienda is a small two-service app that parses Binance trade exports, ca
   - `app/services/tax_engine.py` for FIFO-style lot accounting and gain calculation, powered by the CoinGecko-backed price service in `app/services/pricing.py`.
   - `app/session_store.py` keeps uploaded sessions in-memory.
 - **Frontend (Vite + React + TypeScript)**: Provides a CSV upload screen and a dashboard with charts, summary cards, holdings, filters, and CSV export. Components live under `frontend/src` with routing set up in `App.tsx`.
+- **Desktop shell (Electron)**: Lives under `desktop/` and bundles the compiled frontend together with a packaged backend binary. It spawns the backend service automatically, exposes it on `http://127.0.0.1:8000`, and wraps the UI so it can be distributed as an AppImage or Windows installer.
 - **Containerization**: `docker-compose.yml` builds separate backend and frontend images and wires them together on a shared bridge network.
+- **Data directory**: Runtime sessions are now persisted under `data/` (or any folder you point `CRIPTOHACIENDA_DATA_DIR` to), so processed uploads survive restarts across Docker, desktop builds, and local development.
 
 ## Running with Docker Compose
 
@@ -22,6 +24,64 @@ Cripto Hacienda is a small two-service app that parses Binance trade exports, ca
    - Backend: http://localhost:8000 (FastAPI docs at http://localhost:8000/docs)
    - Frontend: http://localhost:3000 (configured to talk to the backend service via `VITE_API_BASE_URL`)
 3. Press `Ctrl+C` to stop; containers are named `criptohacienda-backend` and `criptohacienda-frontend` if you need to clean up.
+
+The backend writes session data to `./data` on the host by default. Mount a different folder by setting `CRIPTOHACIENDA_DATA_DIR` on the backend service.
+
+## Data persistence outside Docker
+
+- During local development (running `uvicorn` manually), session JSON files are written to `<repo>/data/sessions`. Override the location with `CRIPTOHACIENDA_DATA_DIR=/path/to/storage`.
+- Desktop binaries (AppImage or `.exe`) attempt to write next to the executable in a folder named `criptohacienda-data`. If that path is read-only, the app falls back to the OS user data directory.
+- You can safely back up or delete individual session files under `data/sessions` to manage disk usage.
+
+## Desktop builds (AppImage / Windows .exe)
+
+The `desktop/` folder wraps the project with Electron so it can run without Docker. The shell builds the frontend, launches the backend automatically, and exposes the FastAPI server on `http://127.0.0.1:8000` for the bundled UI.
+
+### 1. Quick scripts
+
+- **Linux AppImage** (requires `pyinstaller`, Node/npm, and AppImage toolchain):
+  ```bash
+  ./scripts/build-appimage.sh
+  ```
+  This script compila el backend con PyInstaller, sincroniza el frontend y ejecuta `npm run build:linux`. El archivo `.AppImage` queda en `desktop/dist/`.
+
+- **Windows installer** (run in PowerShell with PyInstaller + Node + NSIS in PATH):
+  ```powershell
+  pwsh ./scripts/build-windows.ps1
+  ```
+  Genera `desktop/dist/CriptoHacienda-Setup-<version>.exe`. Usa `-PyInstaller C:\ruta\pyinstaller.exe` si tu binario se llama distinto.
+
+### 2. Manual build steps (si prefieres ejecutarlos uno por uno)
+
+1. **Backend binary**  
+   ```bash
+   pyinstaller backend/desktop_main.py \
+     --name criptohacienda-backend \
+     --onefile \
+     --distpath desktop/resources/backend \
+     --workpath backend/.pyinstaller-build \
+     --clean
+   ```
+2. **Frontend assets**  
+   ```bash
+   cd desktop
+   npm install
+   npm run sync:frontend   # Copia frontend/dist a desktop/resources/ui
+   ```
+3. **Electron package**
+   - Linux: `npm run build:linux`
+   - Windows: `npm run build:windows`
+
+### 3. Running the desktop app locally
+
+For quick local testing without installers:
+
+```bash
+cd desktop
+npm run dev
+```
+
+This command rebuilds the frontend, starts the backend with your system Python (`python -m backend.desktop_main`), and opens the Electron window. The backend persists sessions in the same `data/` folder as the CLI/docker workflows unless you override `CRIPTOHACIENDA_DATA_DIR`.
 
 ## API Endpoints
 

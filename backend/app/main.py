@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from .models import (
     CashMovement,
+    NormalizedTx,
     Operation,
     OperationView,
     PortfolioSnapshot,
@@ -32,6 +33,7 @@ from .schemas import (
     GroupBy,
     HoldingsResponse,
     AnalyzeResponse,
+    SessionResponse,
     OperationsResponse,
     RealizedGainsResponse,
     SummaryItem,
@@ -41,6 +43,9 @@ from .schemas import (
     UploadResponse,
 )
 from .services import parser, pricing
+from .services.analysis.importers.btc_importer import import_btc_addresses
+from .services.analysis.importers.evm_importer import import_evm_addresses
+from .services.analysis.operation_builder import build_wallet_operations
 from .services.analysis.pipeline import run_combined_analysis
 from .services.tax_engine import TaxEngine
 from .session_store import session_store
@@ -614,6 +619,77 @@ async def get_upload_job(job_id: str) -> UploadJobStatus:
     )
 
 
+@app.post("/api/upload/unified", response_model=SessionResponse)
+async def upload_unified(
+    binanceCsvFile: UploadFile | None = File(None),
+    btcAddresses: str = Form("[]"),
+    evmAddresses: str = Form("[]"),
+    chains: str = Form("[]"),
+) -> SessionResponse:
+    csv_bytes = await binanceCsvFile.read() if binanceCsvFile else None
+    operations: List[Operation] = []
+    cash_movements: List[CashMovement] = []
+
+    if csv_bytes:
+        content = csv_bytes.decode("utf-8")
+        try:
+            csv_operations, csv_cash = parser.parse_binance_csv(content)
+            operations.extend(csv_operations)
+            cash_movements.extend(csv_cash)
+        except parser.CSVFormatError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    btc_list = _parse_json_list(btcAddresses)
+    evm_list = _parse_json_list(evmAddresses)
+    chain_list = _parse_json_list(chains)
+
+    wallet_transactions: List[NormalizedTx] = []
+    if btc_list:
+        wallet_transactions.extend(import_btc_addresses(btc_list))
+    if evm_list and chain_list:
+        wallet_transactions.extend(import_evm_addresses(evm_list, chain_list))
+
+    wallet_ops, wallet_cash = build_wallet_operations(wallet_transactions)
+    operations.extend(wallet_ops)
+    cash_movements.extend(wallet_cash)
+    operations.sort(key=lambda op: op.timestamp)
+
+    pricing.reset_missing_assets()
+    engine = TaxEngine(pricing.get_price_eur)
+    try:
+        engine.process_operations(operations)
+    except pricing.PricingError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    try:
+        operation_views, total_invested, total_fees = _build_operation_views(operations)
+        total_deposited = _cash_total_eur(cash_movements, "deposit")
+        total_withdrawn = _cash_total_eur(cash_movements, "withdraw")
+        portfolio_snapshots = _build_portfolio_snapshots(operations, cash_movements)
+    except pricing.PricingError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    session_id = str(uuid4())
+    session_store.set(
+        session_id,
+        SessionData(
+            operations=operations,
+            realized_gains=engine.realized_gains,
+            holdings={asset: lots for asset, lots in engine.holdings.items()},
+            operation_views=operation_views,
+            total_invested_eur=total_invested,
+            total_fees_eur=total_fees,
+            cash_movements=cash_movements,
+            total_deposited_eur=total_deposited,
+            total_withdrawn_eur=total_withdrawn,
+            portfolio_snapshots=portfolio_snapshots,
+            missing_prices=pricing.get_missing_assets(),
+        ),
+    )
+
+    return SessionResponse(session_id=session_id)
+
+
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze_wallets(
     binanceCsvFile: UploadFile | None = File(None),
@@ -730,6 +806,7 @@ async def get_dashboard(
         holdings=holdings,
         portfolioHistory=portfolio_history,
         assetPerformance=_asset_performance(session.realized_gains),
+        missingPrices=session.missing_prices,
     )
 
 
@@ -773,6 +850,11 @@ async def export_operations(
     output.seek(0)
     headers = {"Content-Disposition": 'attachment; filename="operations.csv"'}
     return StreamingResponse(iter([output.getvalue().encode("utf-8")]), media_type="text/csv", headers=headers)
+
+
+@app.get("/api/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 @app.delete("/api/sessions/{session_id}")

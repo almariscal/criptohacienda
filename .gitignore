@@ -8,6 +8,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .coverage
+backend/.pyinstaller-build/
 .env
 .venv/
 venv/
@@ -29,6 +30,10 @@ frontend/.turbo/
 frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+desktop/build/
 
 # OS / Editor  noise
 *.DS_Store

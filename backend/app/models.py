@@ -34,6 +34,8 @@ class NormalizedTx:
     src_address: Optional[str] = None
     dst_address: Optional[str] = None
     raw: Optional[dict] = None
+    wallet_id: Optional[str] = None
+    source_label: Optional[str] = None
 
 
 @dataclass
@@ -104,6 +106,7 @@ class SessionData:
     total_deposited_eur: float = 0.0
     total_withdrawn_eur: float = 0.0
     portfolio_snapshots: List[PortfolioSnapshot] = field(default_factory=list)
+    missing_prices: List[str] = field(default_factory=list)
 
 
 @dataclass

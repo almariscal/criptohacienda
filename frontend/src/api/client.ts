@@ -74,6 +74,7 @@ export type DashboardResponse = {
   holdings: Holding[];
   portfolioHistory: PortfolioSnapshot[];
   assetPerformance: { asset: string; gains: number; operations: number }[];
+  missingPrices: string[];
 };
 
 export type AnalyzeResponse = {
@@ -101,6 +102,23 @@ export type AnalyzeResponse = {
       raw?: Record<string, unknown>;
     }[];
   }[];
+  flowHistory: {
+    inflows: FlowEntry[];
+    outflows: FlowEntry[];
+    movements: FlowEntry[];
+  };
+  session_id?: string;
+};
+
+export type FlowEntry = {
+  tx_id: string;
+  timestamp: string;
+  asset: string;
+  amount: number;
+  location: string;
+  chain?: string;
+  counterparty?: string;
+  type: string;
 };
 
 export type AnalyzePayload = {
@@ -108,6 +126,10 @@ export type AnalyzePayload = {
   btcAddresses: string[];
   evmAddresses: string[];
   chains: string[];
+};
+
+export type SessionResponse = {
+  session_id: string;
 };
 
 export type UploadJobStep = {
@@ -144,11 +166,17 @@ const resolveApiBaseUrl = (): string => {
   }
 
   if (typeof window !== 'undefined') {
+    const desktopBase = window.desktopConfig?.apiBaseUrl?.trim();
+    if (desktopBase) {
+      return normalizeBaseUrl(desktopBase);
+    }
     const { protocol, hostname } = window.location;
-    return normalizeBaseUrl(`${protocol}//${hostname}:${FALLBACK_API_PORT}`);
+    if (protocol.startsWith('http') && hostname) {
+      return normalizeBaseUrl(`${protocol}//${hostname}:${FALLBACK_API_PORT}`);
+    }
   }
 
-  return '';
+  return normalizeBaseUrl(`http://127.0.0.1:${FALLBACK_API_PORT}`);
 };
 
 const API_BASE_URL = resolveApiBaseUrl();
@@ -250,6 +278,27 @@ class ApiClient {
 
     if (!response.ok) {
       throw await this.buildError(response, 'No se pudo completar el análisis multichain.');
+    }
+
+    return response.json();
+  }
+
+  async uploadUnified(payload: AnalyzePayload): Promise<SessionResponse> {
+    const formData = new FormData();
+    if (payload.binanceCsvFile) {
+      formData.append('binanceCsvFile', payload.binanceCsvFile);
+    }
+    formData.append('btcAddresses', JSON.stringify(payload.btcAddresses));
+    formData.append('evmAddresses', JSON.stringify(payload.evmAddresses));
+    formData.append('chains', JSON.stringify(payload.chains));
+
+    const response = await fetch(`${this.baseUrl}/api/upload/unified`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw await this.buildError(response, 'No se pudo generar la sesión unificada.');
     }
 
     return response.json();

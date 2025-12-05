@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import GainsChart from '../components/GainsChart';
 import OperationsTable from '../components/OperationsTable';
@@ -19,6 +19,8 @@ const DashboardPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<'day' | 'month' | 'year'>('month');
   const [filters, setFilters] = useState({ startDate: '', endDate: '', asset: '', type: '' });
+  const [showMissingModal, setShowMissingModal] = useState(false);
+  const missingPricesKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -43,6 +45,20 @@ const DashboardPage = () => {
 
     fetchData();
   }, [sessionId, groupBy, filters.startDate, filters.endDate, filters.asset, filters.type]);
+
+  useEffect(() => {
+    const assets = data?.missingPrices ?? [];
+    if (assets.length > 0) {
+      const key = assets.join(',');
+      if (missingPricesKeyRef.current !== key) {
+        missingPricesKeyRef.current = key;
+        setShowMissingModal(true);
+      }
+    } else {
+      missingPricesKeyRef.current = null;
+      setShowMissingModal(false);
+    }
+  }, [data?.missingPrices]);
 
   const handleExport = async () => {
     if (!sessionId) return;
@@ -114,6 +130,31 @@ const DashboardPage = () => {
 
   return (
     <div className="dashboard-stack">
+      {data && data.missingPrices?.length > 0 && (
+        <div className="panel panel-warning">
+          <div className="panel-header">
+            <div>
+              <p className="panel-label">Aviso de valoración</p>
+              <h2>Hay activos sin cotización</h2>
+            </div>
+            <button className="btn ghost" onClick={() => setShowMissingModal(true)}>
+              Ver detalle
+            </button>
+          </div>
+          <p>
+            No pudimos obtener la cotización histórica de los siguientes activos, por lo que se han
+            valorado temporalmente en 0 €. Actualiza los precios manualmente o vuelve a intentarlo
+            más tarde.
+          </p>
+          <div className="chip-group">
+            {data.missingPrices.map((asset) => (
+              <span key={asset} className="chip chip--warning">
+                {asset}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {loading && <div className="status-badge">Cargando datos...</div>}
       {error && <div className="status-badge status-badge--error">{error}</div>}
       {data && <SummaryCards summary={data.summary} />}
@@ -144,6 +185,33 @@ const DashboardPage = () => {
         />
       )}
       {data && holdingsView}
+      {showMissingModal && data?.missingPrices?.length ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal">
+            <h3>Activos sin precio</h3>
+            <p>
+              Registramos cada activo con valor 0 € porque los proveedores consultados no ofrecen
+              cotización EUR en la fecha solicitada. No afecta a tu histórico de operaciones, pero
+              reduce el valor actual mostrado.
+            </p>
+            <ul className="missing-price-list">
+              {data.missingPrices.map((asset) => (
+                <li key={asset}>
+                  <span className="chip chip--warning">{asset}</span>
+                  <span className="missing-price-list__note">
+                    Se mantiene con valor provisional de 0 € hasta que haya datos.
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="modal__actions">
+              <button className="btn" onClick={() => setShowMissingModal(false)}>
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

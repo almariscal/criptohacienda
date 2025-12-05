@@ -1,0 +1,52 @@
+{
+  "name": "criptohacienda-desktop",
+  "version": "1.0.0",
+  "description": "Wrapper de escritorio para Cripto Hacienda",
+  "main": "main.js",
+  "scripts": {
+    "sync:frontend": "node scripts/sync-frontend.cjs",
+    "dev": "npm run sync:frontend && electron .",
+    "build:linux": "npm run sync:frontend && electron-builder --linux AppImage",
+    "build:windows": "npm run sync:frontend && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^31.2.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "productName": "Cripto Hacienda",
+    "appId": "com.criptohacienda.desktop",
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "extraResources": [
+      {
+        "from": "resources/ui",
+        "to": "ui"
+      },
+      {
+        "from": "resources/backend",
+        "to": "backend"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Finance"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "CriptoHacienda-Setup-${version}.exe"
+    },
+    "asar": true
+  }
+}

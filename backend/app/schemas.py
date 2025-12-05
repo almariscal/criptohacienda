@@ -66,6 +66,10 @@ class UploadResponse(BaseModel):
     job_id: str = Field(..., description="Identifier for the processing job")
 
 
+class SessionResponse(BaseModel):
+    session_id: str
+
+
 class UploadJobStep(BaseModel):
     id: str
     label: str
@@ -97,6 +101,8 @@ class NormalizedTxSchema(BaseModel):
     src_address: Optional[str] = None
     dst_address: Optional[str] = None
     raw: Optional[dict] = None
+    wallet_id: Optional[str] = None
+    source_label: Optional[str] = None
 
 
 class DashboardOperation(BaseModel):
@@ -180,6 +186,23 @@ class AssetHistoryPoint(BaseModel):
     balance: float
 
 
+class FlowEntry(BaseModel):
+    tx_id: str
+    timestamp: datetime
+    asset: str
+    amount: float
+    location: str
+    chain: Optional[str] = None
+    counterparty: Optional[str] = None
+    type: str
+
+
+class FlowHistory(BaseModel):
+    inflows: List[FlowEntry]
+    outflows: List[FlowEntry]
+    movements: List[FlowEntry]
+
+
 class DashboardResponse(BaseModel):
     summary: DashboardSummary
     gains: List[DashboardGainPoint]
@@ -187,6 +210,7 @@ class DashboardResponse(BaseModel):
     holdings: List[DashboardHolding]
     portfolioHistory: List[PortfolioSnapshotPoint]
     assetPerformance: List[AssetPerformancePoint]
+    missingPrices: List[str] = []
 
 
 class AnalyzeResponse(BaseModel):
@@ -197,3 +221,4 @@ class AnalyzeResponse(BaseModel):
     valueTimeline: Dict[str, float]
     assetHistory: Dict[str, List[AssetHistoryPoint]]
     assetBreakdown: List[AssetBreakdown]
+    flowHistory: FlowHistory

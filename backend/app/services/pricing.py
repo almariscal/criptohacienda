@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Set
 
 import requests
 from cachetools import LRUCache
@@ -19,6 +19,7 @@ SYMBOL_TO_ID = {
 }
 
 _CACHE: LRUCache[Tuple[str, str], float] = LRUCache(maxsize=256)
+_MISSING_ASSETS: Set[str] = set()
 
 
 class PricingError(RuntimeError):
@@ -126,7 +127,8 @@ def _fetch_price_eur(symbol: str, asset_id: str, timestamp: datetime, date_key: 
         except PricingError as exc:
             errors.append(str(exc))
             continue
-    raise PricingError("; ".join(errors))
+    _record_missing(symbol)
+    return 0.0
 
 
 def _cache_key(symbol: str, timestamp: datetime) -> Tuple[str, str]:
@@ -153,3 +155,15 @@ def get_price_eur(symbol: str, timestamp: datetime) -> float:
     price = _fetch_price_eur(symbol, asset_id, normalized_ts, date_key)
     _CACHE[cache_key] = price
     return price
+
+
+def _record_missing(symbol: str) -> None:
+    _MISSING_ASSETS.add(symbol.upper())
+
+
+def reset_missing_assets() -> None:
+    _MISSING_ASSETS.clear()
+
+
+def get_missing_assets() -> list[str]:
+    return sorted(_MISSING_ASSETS)

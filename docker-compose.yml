@@ -11,6 +11,7 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - CRIPTOHACIENDA_DATA_DIR=/app/data
       - ETHERSCAN_API_KEY=C3B2F2RDENI859D8SZ8CWZDWZ4FGCCF6P6
       - ARBISCAN_API_KEY=""
       - BASESCAN_API_KEY=""
@@ -18,6 +19,8 @@ services:
       - OPTIMISTICSCAN_API_KEY=""
       - BSCSCAN_API_KEY=""
       - SNOWTRACE_API_KEY=""
+    volumes:
+      - ./data:/app/data
     networks:
       - app-network
 
